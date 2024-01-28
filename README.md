@@ -13,7 +13,7 @@ autoRDP.Login("username", "password", 10);
 
 ## Mentions
 
-This code simply uses the already very usefull library [InputSimulator](https://github.com/michaelnoonan/inputsimulator) to automatically insert the username and password in the prompt.
+This code simply uses the already very useful library [InputSimulator](https://github.com/michaelnoonan/inputsimulator) to automatically insert the username and password in the prompt.
 
 ## License
 
