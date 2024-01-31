@@ -8,6 +8,8 @@ using WindowsInput.Native;
 using System.Runtime.InteropServices.WindowsRuntime;
 using WindowsInput;
 using System.Diagnostics;
+using System.Windows.Automation;
+using System.Runtime.CompilerServices;
 
 namespace AutoRDP
 {
@@ -59,50 +61,77 @@ namespace AutoRDP
         /// <param name="password">Password to auto instert</param>
         /// <param name="timeout">Timeout value in seconds</param>
         /// <exception cref="TimeoutException"></exception>
-        public async void Login(string username, string password, int timeout, int delayInputs = 250)
+        public async Task LoginAsync(string username, string password, int timeout, int delayInputs = 100)
         {
             await CancelAfterAsync(ct => LoginAsync(username, password, ct, delayInputs), TimeSpan.FromSeconds(timeout)).ConfigureAwait(false);
         }
 
-        /// <inheritdoc cref="Login"/>
-        public async Task LoginAsync(string username, string password, CancellationToken cancellationToken, int delayInputs = 250)
+        /// <inheritdoc cref="LoginAsync"/>
+        public async Task LoginAsync(string username, string password, CancellationToken cancellationToken, int delayInputs = 100)
         {
             if (cancellationToken.IsCancellationRequested)
             {
                 return;
             }
 
+            var passwInput = false; var usernInput = false;
             while (!cancellationToken.IsCancellationRequested)
             {
+                // Get the currently focused window
                 var hwnd = this.FocusedControlInActiveWindow();
                 var title = GetWindowTitle(hwnd);
+                // Interact only with alleged RDP authentication window
                 if (title == "Windows Security")
                 {
-                    // Password -> More choices
-                    await Task.Delay(delayInputs, cancellationToken).ConfigureAwait(false);
+                    // Navigate with focus and try to fill username and password fields
+                    switch (AutomationElement.FocusedElement.Current.Name.ToLower())
+                    {
+                        case "user name":
+                            this.SendEntry(username);
+                            usernInput = true;
+                            break;
+                        case "password":
+                            this.SendEntry(password);
+                            passwInput = true;
+                            break;
+                        case "more choices":
+                            this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.SPACE);
+                            // Wait a little more upon opening the more choices options
+                            await Task.Delay(delayInputs, cancellationToken).ConfigureAwait(false);
+                            break;
+                        case "switch to local or domain account password":
+                            this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.SPACE);
+                            break;
+                        default:
+                            break;
+                    }
+                    // Username and password inserted, send it
+                    if (usernInput && passwInput)
+                    {
+                        this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.RETURN);
+                        return;
+                    }
+                    // Move to next control
                     this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.TAB);
-                    // Open 'More choices'
-                    this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.SPACE);
-                    await Task.Delay(delayInputs, cancellationToken).ConfigureAwait(false);
-                    // More choices -> First user
-                    this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.TAB);
-                    // First user -> Use a different account
-                    this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.TAB);
-                    // Open 'Use a different account'
-                    this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.SPACE);
-                    await Task.Delay(delayInputs, cancellationToken).ConfigureAwait(false);
-                    // Insert username
-                    this.inputSimulator.Keyboard.TextEntry(username);
-                    // Username -> Password
-                    this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.TAB);
-                    // Inser Password
-                    this.inputSimulator.Keyboard.TextEntry(password);
-                    // Connect
-                    this.inputSimulator.Keyboard.KeyPress(VirtualKeyCode.RETURN);
-                    return;
                 }
-                await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+                // Add a little delay to give UI time to respond 
+                await Task.Delay(delayInputs, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Send a new clean entry replacing all text selectable (with CTRL+SHIFT+A) in focused input control
+        /// </summary>
+        public void SendEntry(string entry)
+        {
+            // CTRL + SHIFT + A selects all
+            this.inputSimulator.Keyboard.ModifiedKeyStroke(
+                new[] { 
+                    VirtualKeyCode.CONTROL, 
+                    VirtualKeyCode.SHIFT },
+                    VirtualKeyCode.VK_A);
+            // Replace selection with new entry
+            this.inputSimulator.Keyboard.TextEntry(entry);
         }
 
         /// <summary>
